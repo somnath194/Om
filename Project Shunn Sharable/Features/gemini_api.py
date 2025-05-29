@@ -8,7 +8,7 @@
 # response = model.generate_content("Write a poem about the moon.")
 # print(response.text)
 
-api = "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"
+api = ""
 from openai import OpenAI
 
 client = OpenAI(
