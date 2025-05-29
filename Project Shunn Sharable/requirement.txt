@@ -1,0 +1,13 @@
+pyttsx3
+pywhatkit
+pyjokes
+pyautogui
+speedtest
+pygetwindow
+geocoder
+speechrecognition
+paho-mqtt
+comtypes
+screen_brightness_control
+pycaw
+geopy
