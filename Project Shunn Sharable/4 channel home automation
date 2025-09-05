@@ -1,0 +1,180 @@
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
+// WiFi Credentials
+const char* ssid = "*******";
+const char* password = "********";
+
+// HiveMQ MQTT Broker
+const char* mqttServer = "broker.mqtt.cool";
+const int mqttPort = 1883;
+const char* controlTopic = "***********";  //Receives relay control commands
+const char* statusTopic = "*************";    //Sends relay status updates
+
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// Relay Pins
+const int relay1 = D0;
+const int relay2 = D2;
+const int relay3 = D3; //blink while turn on
+const int relay4 = D10;
+
+// Switch Pins
+const int switch1 = D1;
+const int switch2 = D6;
+const int switch3 = D7;
+const int switch4 = D9;
+
+// Track Switch States
+bool lastSwitchState1 = HIGH;
+bool lastSwitchState2 = HIGH;
+bool lastSwitchState3 = HIGH;
+bool lastSwitchState4 = HIGH;
+
+// Track Last Relay States to Detect Changes
+bool lastRelayState1 = HIGH;
+bool lastRelayState2 = HIGH;
+bool lastRelayState3 = HIGH;
+bool lastRelayState4 = HIGH;
+
+// Publish all relay statuses when any relay changes
+void publishAllRelayStatus() {
+  if (WiFi.status() == WL_CONNECTED && client.connected()) {
+    String statusMessage = "relay1:" + String(digitalRead(relay1) ? "off" : "on") + "," + "relay2:" + String(digitalRead(relay2) ? "off" : "on") + "," + "relay3:" + String(digitalRead(relay3) ? "off" : "on") + "," + "relay4:" + String(digitalRead(relay4) ? "off" : "on");
+
+    client.publish(statusTopic, statusMessage.c_str(), true);  // Retain message
+  }
+}
+
+// MQTT Message Handler
+void callback(char* topic, byte* message, unsigned int length) {
+  String msg = "";
+  for (int i = 0; i < length; i++) {
+    msg += (char)message[i];
+  }
+
+  Serial.print("Received: ");
+  Serial.println(msg);
+
+  if (msg == "relay1_on") digitalWrite(relay1, LOW);
+  else if (msg == "relay1_off") digitalWrite(relay1, HIGH);
+  else if (msg == "relay2_on") digitalWrite(relay2, LOW);
+  else if (msg == "relay2_off") digitalWrite(relay2, HIGH);
+  else if (msg == "relay3_on") digitalWrite(relay3, LOW);
+  else if (msg == "relay3_off") digitalWrite(relay3, HIGH);
+  else if (msg == "relay4_on") digitalWrite(relay4, LOW);
+  else if (msg == "relay4_off") digitalWrite(relay4, HIGH);
+  else if (msg == "all_on") {
+    digitalWrite(relay1, LOW);
+    digitalWrite(relay2, LOW);
+    digitalWrite(relay3, LOW);
+    digitalWrite(relay4, LOW);
+  } else if (msg == "all_off") {
+    digitalWrite(relay1, HIGH);
+    digitalWrite(relay2, HIGH);
+    digitalWrite(relay3, HIGH);
+    digitalWrite(relay4, HIGH);
+  }
+}
+
+// Connect to WiFi & MQTT
+void connectToWiFiAndMQTT() {
+  Serial.print("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
+  int attempt = 0;
+  while (WiFi.status() != WL_CONNECTED && attempt < 5) {
+    delay(1000);
+    Serial.print(".");
+    attempt++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi Connected!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+    client.setServer(mqttServer, mqttPort);
+    client.setCallback(callback);
+    Serial.println("Connecting to MQTT...");
+
+    String clientId = "ESP8266_Home_Automation_" + String(ESP.getChipId(), HEX);
+    Serial.print("clientId: ");
+    Serial.println(clientId);
+
+    if (client.connect(clientId.c_str())) {//client id should use new
+      Serial.println("Connected!");
+      client.subscribe(controlTopic);
+    } else {
+      Serial.println("MQTT Connection Failed! Running offline mode.");
+    }
+  } else {
+    Serial.println("\nWiFi Not Connected! Running in offline mode.");
+  }
+}
+
+void setup() {
+  // Serial.begin(115200);
+
+  pinMode(relay1, OUTPUT);
+  digitalWrite(relay1, HIGH);
+  pinMode(relay2, OUTPUT);
+  digitalWrite(relay2, HIGH);
+  pinMode(relay3, OUTPUT);
+  digitalWrite(relay3, HIGH);
+  pinMode(relay4, OUTPUT);
+  digitalWrite(relay4, HIGH);
+
+  pinMode(switch1, INPUT_PULLUP);
+  pinMode(switch2, INPUT_PULLUP);
+  pinMode(switch3, INPUT_PULLUP);
+  pinMode(switch4, INPUT_PULLUP);
+
+  connectToWiFiAndMQTT();
+}
+
+void loop() {
+  if (WiFi.status() == WL_CONNECTED && !client.connected()) {
+    connectToWiFiAndMQTT();
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    client.loop();
+  }
+
+  bool currentSwitchState1 = digitalRead(switch1);
+  bool currentSwitchState2 = digitalRead(switch2);
+  bool currentSwitchState3 = digitalRead(switch3);
+  bool currentSwitchState4 = digitalRead(switch4);
+
+  if (currentSwitchState1 != lastSwitchState1) {
+    digitalWrite(relay1, currentSwitchState1 == LOW ? LOW : HIGH);
+  }
+  if (currentSwitchState2 != lastSwitchState2) {
+    digitalWrite(relay2, currentSwitchState2 == LOW ? LOW : HIGH);
+  }
+  if (currentSwitchState3 != lastSwitchState3) {
+    digitalWrite(relay3, currentSwitchState3 == LOW ? LOW : HIGH);
+  }
+  if (currentSwitchState4 != lastSwitchState4) {
+    digitalWrite(relay4, currentSwitchState4 == LOW ? LOW : HIGH);
+  }
+
+  lastSwitchState1 = currentSwitchState1;
+  lastSwitchState2 = currentSwitchState2;
+  lastSwitchState3 = currentSwitchState3;
+  lastSwitchState4 = currentSwitchState4;
+
+  // Detect Changes & Publish Status
+  if (digitalRead(relay1) != lastRelayState1 || digitalRead(relay2) != lastRelayState2 || digitalRead(relay3) != lastRelayState3 || digitalRead(relay4) != lastRelayState4) {
+
+    publishAllRelayStatus();
+
+    // Update Last Relay States
+    lastRelayState1 = digitalRead(relay1);
+    lastRelayState2 = digitalRead(relay2);
+    lastRelayState3 = digitalRead(relay3);
+    lastRelayState4 = digitalRead(relay4);
+  }
+
+  delay(50);
+}
